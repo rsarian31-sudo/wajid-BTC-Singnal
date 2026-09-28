@@ -1,4 +1,4 @@
-const CFG={symbol:"BTCUSDT",interval:"1m",limit:1000,startingBalance:100,riskPerTrade:8,lookback:10,atrLen:14,volumeLen:20,volumeMult:1.15,displacementATR:1.20,minSLPct:0.0008,maxSLPct:0.0060,bufferATR:0.12,rr:[1,2,3,4]};
+const CFG={symbol:"BTCUSDT",interval:"5m",limit:1000,startingBalance:100,riskPerTrade:8,lookback:10,atrLen:14,volumeLen:20,volumeMult:1.15,displacementATR:1.20,minSLPct:0.0008,maxSLPct:0.0060,bufferATR:0.12,rr:[1,2,3,4]};
 const state={candles:[],signal:null,historyExpanded:false};
 const $=id=>document.getElementById(id); const fmt=n=>Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); const pct=(a,b)=>b?((a-b)/b*100):0;
 function setStatus(t,live){$("status").textContent=t;$("status").classList.toggle("live",!!live)}
