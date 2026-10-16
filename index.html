@@ -17,6 +17,13 @@
 <div class="stat"><small>Closed Trades</small><strong id="closed-count">0</strong><small>History saved on this browser</small></div>
 </div>
 <div class="controls"><button class="btn" id="refresh">↻ Refresh market data</button><button class="btn" id="export">Export history CSV</button><span class="status" id="status">Connecting to public Binance market data…</span></div>
+<div class="panel" style="margin:0 0 18px">
+<div class="section-title" style="margin:0 0 8px"><h2>Historical Backtest</h2><span class="pill">7 DAYS</span></div>
+<p class="muted" style="margin:0 0 12px">Test the current liquidity-sweep rules on the latest 7 days of closed Binance candles. Simulated results; gross R before fees.</p>
+<div class="controls" style="margin:0"><button class="btn" id="run-backtest">▶ Backtest last 7 days</button><span class="status" id="backtest-status">Not run yet</span></div>
+<div class="table-wrap" style="margin-top:12px"><table style="min-width:560px"><thead><tr><th>Timeframe</th><th>Trades</th><th>Wins</th><th>Losses</th><th>Win rate</th><th>Net R</th><th>Max DD</th></tr></thead><tbody id="backtest-body"><tr><td colspan="7" class="empty">Run a backtest to see results.</td></tr></tbody></table></div>
+<p class="muted" id="backtest-note" style="font-size:12px;margin-bottom:0">No backtest has been run.</p>
+</div>
 <div class="cards" id="cards">
 <div class="tf-card"><div class="muted">Loading 15M…</div></div><div class="tf-card"><div class="muted">Loading 30M…</div></div><div class="tf-card"><div class="muted">Loading 45M…</div></div>
 </div>
@@ -58,6 +65,48 @@ function showDetails(k){const s=active[k]||currentSignals[k];if(!s){alert('No co
 function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function renderTables(){const a=Object.values(active);document.getElementById('active-body').innerHTML=a.map(t=>'<tr><td>'+t.tf+'</td><td class="'+(t.side==='BUY'?'good':'bad')+'">'+t.side+'</td><td>'+fmt(t.entry)+'</td><td>'+fmt(t.sl)+'</td><td>'+t.hit+'/4</td><td><span class="tag">OPEN</span></td><td>'+time(t.openedAt)+'</td></tr>').join('');document.getElementById('active-empty').style.display=a.length?'none':'block';document.getElementById('history-body').innerHTML=history.slice(0,200).map(t=>'<tr><td>'+t.tf+'</td><td class="'+(t.side==='BUY'?'good':'bad')+'">'+t.side+'</td><td>'+fmt(t.entry)+'</td><td>'+fmt(t.exitPrice)+'</td><td class="'+(t.resultR>0?'good':t.resultR<0?'bad':'')+'">'+(t.resultR>0?'+':'')+t.resultR+'R</td><td>'+t.hit+'/4 ('+escapeHTML(t.closeReason)+')</td><td>'+time(t.closedAt)+'</td></tr>').join('');document.getElementById('history-empty').style.display=history.length?'none':'block'}
 async function refreshAll(){setStatus('Fetching BTC/USDT candles…');try{const rows=normalize(await fetchJSON(API+'/klines?symbol=BTCUSDT&interval=15m&limit=300'));if(!rows.length)throw new Error('No candle data');const now=Date.now(),closed15=rows.filter(c=>c.closeTime<now),closed30=normalize(await fetchJSON(API+'/klines?symbol=BTCUSDT&interval=30m&limit=200')).filter(c=>c.closeTime<now),closed45=aggregate45(closed15),closed1m=normalize(await fetchJSON(API+'/klines?symbol=BTCUSDT&interval=1m&limit=1000')).filter(c=>c.closeTime<now);marketCandles={'1m':closed1m,'15m':closed15,'30m':closed30,'45m':closed45};price=Number((await fetchJSON(API+'/ticker/price?symbol=BTCUSDT')).price);document.getElementById('price').textContent='$'+fmt(price);document.getElementById('price-time').textContent='Updated '+new Date().toLocaleTimeString();for(const tf of TFS){const cs=marketCandles[tf.key];currentSignals[tf.key]=generateSignal(cs,tf);const latest=cs[cs.length-1];if(currentSignals[tf.key]&&currentSignals[tf.key].candleTime===latest?.t)maybeOpen(tf,currentSignals[tf.key]);updateTrade(tf,closed1m)}renderCards();renderTables();save();setStatus('Market data updated · '+new Date().toLocaleTimeString())}catch(e){setStatus('Could not load live market data: '+e.message,true);renderCards();renderTables()}}
+
+function simulateBacktest(candles,tf){
+ const trades=[];let i=40,equity=0,peak=0,maxDD=0;
+ while(i<candles.length){
+  const sig=generateSignal(candles.slice(0,i+1),tf);
+  if(!sig||sig.candleTime!==candles[i].t){i++;continue}
+  let hit=0,sl=sig.sl,result=null,j=i+1,exitPrice=null,reason='';
+  for(;j<candles.length;j++){
+   const x=candles[j],buy=sig.side==='BUY';
+   if(buy?x.l<=sl:x.h>=sl){result=hit===0?-1:hit===1?0:hit-1;exitPrice=sl;reason=hit===0?'SL':hit===1?'ENTRY SL':'TP'+hit+' / ENTRY SL';break}
+   while(hit<4&&(buy?x.h>=sig.tp[hit]:x.l<=sig.tp[hit])){
+    hit++;if(hit===1)sl=sig.entry;
+    if(hit===4){result=4;exitPrice=sig.tp[3];reason='TP4';break}
+   }
+   if(result!==null)break;
+  }
+  if(result===null){i++;continue}
+  trades.push({resultR:result});equity+=result;peak=Math.max(peak,equity);maxDD=Math.max(maxDD,peak-equity);i=j+1;
+ }
+ const wins=trades.filter(t=>t.resultR>0).length,losses=trades.filter(t=>t.resultR<0).length;
+ return {tf:tf.label,trades:trades.length,wins,losses,winRate:trades.length?100*wins/trades.length:0,netR:trades.reduce((s,t)=>s+t.resultR,0),maxDD};
+}
+function renderBacktest(results){
+ document.getElementById('backtest-body').innerHTML=results.map(r=>'<tr><td>'+r.tf+'</td><td>'+r.trades+'</td><td class="good">'+r.wins+'</td><td class="bad">'+r.losses+'</td><td>'+r.winRate.toFixed(1)+'%</td><td class="'+(r.netR>0?'good':r.netR<0?'bad':'')+'">'+(r.netR>0?'+':'')+r.netR.toFixed(2)+'R</td><td>'+r.maxDD.toFixed(2)+'R</td></tr>').join('');
+}
+async function runBacktest(){
+ const b=document.getElementById('run-backtest'),s=document.getElementById('backtest-status'),n=document.getElementById('backtest-note');
+ b.disabled=true;s.textContent='Loading historical candles…';n.textContent='Keep this page open while the test runs.';
+ try{
+  const now=Date.now(),since=now-7*24*60*60*1000;
+  const r15=normalize(await fetchJSON(API+'/klines?symbol=BTCUSDT&interval=15m&limit=1000')).filter(x=>x.closeTime<now);
+  const r30=normalize(await fetchJSON(API+'/klines?symbol=BTCUSDT&interval=30m&limit=400')).filter(x=>x.closeTime<now);
+  const c15=r15.filter(x=>x.t>=since),c30=r30.filter(x=>x.t>=since),c45=aggregate45(r15).filter(x=>x.t>=since);
+  if(c15.length<100||c30.length<50||c45.length<30)throw Error('Not enough historical candles returned.');
+  renderBacktest([simulateBacktest(c15,TFS[0]),simulateBacktest(c30,TFS[1]),simulateBacktest(c45,TFS[2])]);
+  s.textContent='Completed · '+new Date().toLocaleTimeString();
+  n.textContent='Period: '+time(since)+' to '+time(now)+'. Entries at signal candle close; exit checks begin on the next candle. If stop and target are both touched in one candle, stop is assumed first. Net R is gross before fees/slippage; candle-level simulation may differ from live execution.';
+ }catch(e){s.textContent='Backtest failed: '+e.message;n.textContent='Check connection and try again.'}
+ finally{b.disabled=false}
+}
+document.getElementById('run-backtest').addEventListener('click',runBacktest);
+
 document.getElementById('refresh').addEventListener('click',refreshAll);
 document.getElementById('clear-history').addEventListener('click',()=>{if(confirm('Delete all closed-trade history saved in this browser?')){history=[];save();renderTables();renderCards()}});
 document.getElementById('export').addEventListener('click',()=>{const rows=[['timeframe','side','entry','sl','tp1','tp2','tp3','tp4','exit','resultR','reason','openedAt','closedAt'],...history.map(t=>[t.tf,t.side,t.entry,t.sl,...t.tp,t.exitPrice,t.resultR,t.closeReason,t.openedAt,t.closedAt])];const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='wajid-btc-history.csv';a.click();URL.revokeObjectURL(a.href)});
