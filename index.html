@@ -151,8 +151,8 @@ async function runBBBacktest(){const b=document.getElementById('run-bb-backtest'
 document.getElementById('run-bb-backtest').addEventListener('click',runBBBacktest);
 
 
-function emaSeries(values,len){const out=Array(values.length).fill(null);if(values.length<len)return out;const alpha=2/(len+1);let seed=0;for(let i=0;i<len;i++)seed+=values[i];out[len-1]=seed/len;for(let i=len;i<values.length;i++)out[i]=values[i]*alpha+out[i-1]*(1-alpha);return out}
-function emaBacktest(candles){
+function emaSeries(values,len){const out=Array(values.length).fill(null);const alpha=2/(len+1);let start=-1;for(let i=0;i<values.length;i++){if(Number.isFinite(values[i])){start=i;break}}if(start<0)return out;let seed=0,count=0,i=start;for(;i<values.length&&count<len;i++){if(!Number.isFinite(values[i])){count=0;seed=0;continue}seed+=values[i];count++}if(count<len)return out;out[i-1]=seed/len;for(let j=i;j<values.length;j++){if(Number.isFinite(values[j])&&Number.isFinite(out[j-1]))out[j]=values[j]*alpha+out[j-1]*(1-alpha)}return out}
+function emaBacktest(candles,periodStart){
  const close=candles.map(x=>x.c),fast=emaSeries(close,13),slow=emaSeries(close,21),fastSm=emaSeries(fast.map(x=>x??NaN),14),slowSm=emaSeries(slow.map(x=>x??NaN),14);
  const n=candles.length,top=Array(n).fill(null),bottom=Array(n).fill(null),crossUp=Array(n).fill(false),crossDn=Array(n).fill(false);
  for(let i=0;i<n;i++){if([fast[i],slow[i],fastSm[i],slowSm[i]].some(x=>x===null||!Number.isFinite(x)))continue;top[i]=Math.max(fast[i],slow[i],fastSm[i],slowSm[i]);bottom[i]=Math.min(fast[i],slow[i],fastSm[i],slowSm[i]);if(i&&fast[i-1]!==null&&slow[i-1]!==null){crossUp[i]=fast[i]>slow[i]&&fast[i-1]<=slow[i-1];crossDn[i]=fast[i]<slow[i]&&fast[i-1]>=slow[i-1]}}
@@ -185,7 +185,7 @@ function emaBacktest(candles){
    }
    // Breakeven +$5 trigger, applied after exit checks as in the supplied Pine code.
    if(exitPx===null&&!trade.beDone){const moved=dir===1?c.h-trade.entry>=5:trade.entry-c.l>=5;if(moved){trade.beDone=true;const be=trade.entry;if((be-trade.sl)*dir>0)trade.sl=be}}
-   if(exitPx!==null){const pnl=(exitPx-trade.entry)*dir;stats.closed++;stats.net+=pnl;if(pnl>0)stats.wins++;if(tag==='TP5')stats.tp5++;else if(tag==='EMA EXIT')stats.emaExit++;else stats.slbeTrail++;stats.trades.push({entryTime:candles[trade.entryBar].t,exitTime:c.t,tag,pnl});dir=0;trade=null}
+   if(exitPx!==null){const pnl=(exitPx-trade.entry)*dir;if(candles[trade.entryBar].t>=periodStart){stats.closed++;stats.net+=pnl;if(pnl>0)stats.wins++;if(tag==='TP5')stats.tp5++;else if(tag==='EMA EXIT')stats.emaExit++;else stats.slbeTrail++;stats.trades.push({entryTime:candles[trade.entryBar].t,exitTime:c.t,tag,pnl})}dir=0;trade=null}
   }
   // Signal generation at confirmed candle close; entry is next candle open.
   if(dir===0&&pending===0&&top[i]!==null){
@@ -217,7 +217,7 @@ async function runEmaBacktest(){
  try{
   const now=Date.now(),since=now-7*86400000,warm=since-2*86400000,cs=await fetchAll5m(warm,now);
   if(cs.length<1000)throw new Error('Not enough 5M candles returned ('+cs.length+'). Try again.');
-  const evalCs=cs.filter(c=>c.t>=since-5*60000),stats=emaBacktest(evalCs);
+  const stats=emaBacktest(cs,since);
   const rate=stats.closed?stats.wins/stats.closed*100:0;
   document.getElementById('ema-backtest-body').innerHTML='<tr><td>Last 7 days</td><td>'+stats.signals+'</td><td>'+stats.closed+'</td><td class="good">'+stats.tp5+'</td><td>'+stats.slbeTrail+'</td><td>'+stats.emaExit+'</td><td>'+rate.toFixed(1)+'%</td><td class="'+(stats.net>0?'good':stats.net<0?'bad':'')+'">'+(stats.net>0?'+':'')+'
 document.getElementById('clear-history').addEventListener('click',()=>{if(confirm('Delete all closed-trade history saved in this browser?')){history=[];save();renderTables();renderCards()}});
