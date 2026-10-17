@@ -30,6 +30,12 @@
 <div class="controls" style="margin:0"><button class="btn" id="run-bb-backtest">▶ Backtest BigBeluga logic</button><span class="status" id="bb-backtest-status">Not run yet</span></div>
 <div class="table-wrap" style="margin-top:12px"><table style="min-width:660px"><thead><tr><th>Timeframe</th><th>Signals</th><th>Closed</th><th>Wins</th><th>Losses</th><th>Win rate</th><th>Net R</th><th>Max DD</th></tr></thead><tbody id="bb-backtest-body"><tr><td colspan="8" class="empty">Run the BigBeluga test to see results.</td></tr></tbody></table></div>
 <p class="muted" id="bb-backtest-note" style="font-size:12px;margin-bottom:0">Not run yet. Binance Spot candles; fees/slippage excluded.</p>
+</div><div class="panel" style="margin:0 0 18px">
+<div class="section-title" style="margin:0 0 8px"><h2>EMA 13/21 Cross · 5 TP Backtest</h2><span class="pill">BTCUSDT · 5M · 7 DAYS</span></div>
+<p class="muted" style="margin:0 0 12px">Tests the supplied Pine rules with the indicator's default inputs: EMA 13/21, smoothed EMA 13/21, entry at next candle open, SL at the 5th candle back, TP1–TP5 at $10/$20/$30/$40/$50, +$5 breakeven, EMA 13 & 21 early exit, trailing SL off. This is a separate historical test; live signal logic is unchanged.</p>
+<div class="controls" style="margin:0"><button class="btn" id="run-ema-backtest">▶ Backtest EMA 13/21 · 5M</button><span class="status" id="ema-backtest-status">Not run yet</span></div>
+<div class="table-wrap" style="margin-top:12px"><table style="min-width:680px"><thead><tr><th>Period</th><th>Signals</th><th>Closed</th><th>TP5 wins</th><th>SL/BE/Trail</th><th>EMA exits</th><th>Win rate</th><th>Net $ move</th></tr></thead><tbody id="ema-backtest-body"><tr><td colspan="8" class="empty">Run the EMA test to see results.</td></tr></tbody></table></div>
+<p class="muted" id="ema-backtest-note" style="font-size:12px;margin-bottom:0">Not run yet. Fees/slippage excluded.</p>
 </div><div class="cards" id="cards">
 <div class="tf-card"><div class="muted">Loading 15M…</div></div><div class="tf-card"><div class="muted">Loading 30M…</div></div><div class="tf-card"><div class="muted">Loading 45M…</div></div>
 </div>
@@ -143,6 +149,87 @@ function bbBacktestSeries(cs,tf){
 function renderBBBacktest(rs){document.getElementById('bb-backtest-body').innerHTML=rs.map(r=>'<tr><td>'+r.tf+'</td><td>'+r.signals+'</td><td>'+r.closed+'</td><td class="good">'+r.wins+'</td><td class="bad">'+r.losses+'</td><td>'+r.winRate.toFixed(1)+'%</td><td class="'+(r.netR>0?'good':r.netR<0?'bad':'')+'">'+(r.netR>0?'+':'')+r.netR.toFixed(2)+'R</td><td>'+r.maxDD.toFixed(2)+'R</td></tr>').join('')}
 async function runBBBacktest(){const b=document.getElementById('run-bb-backtest'),s=document.getElementById('bb-backtest-status'),note=document.getElementById('bb-backtest-note');b.disabled=true;s.textContent='Loading historical candles…';try{const now=Date.now(),since=now-7*86400000;const r15=normalize(await fetchJSON(API+'/klines?symbol=BTCUSDT&interval=15m&limit=1000')).filter(x=>x.closeTime<now),r30=normalize(await fetchJSON(API+'/klines?symbol=BTCUSDT&interval=30m&limit=500')).filter(x=>x.closeTime<now),r45=aggregate45(r15);const c15=r15.filter(x=>x.t>=since-2*86400000),c30=r30.filter(x=>x.t>=since-4*86400000),c45=r45.filter(x=>x.t>=since-4*86400000);renderBBBacktest([bbBacktestSeries(c15,TFS[0]),bbBacktestSeries(c30,TFS[1]),bbBacktestSeries(c45,TFS[2])]);s.textContent='Completed · '+new Date().toLocaleTimeString();note.textContent='Latest 7 days evaluated, with extra candles for indicator warm-up. Pivot strength 7; range SMA 50; multiplier 3.5; 50% candle-direction volume filter. Entry at signal candle close. Test-only SL beyond OB with 0.1× range-SMA buffer; TP=2R. Exits start next candle; if SL and TP both touch, SL first. This is a browser-side translation of the Pine logic, not a TradingView broker-emulator test; compare signals against TradingView before relying on it. Binance Spot, before fees/slippage.'}catch(e){s.textContent='Backtest failed: '+e.message;note.textContent='Check connection and retry.'}finally{b.disabled=false}}
 document.getElementById('run-bb-backtest').addEventListener('click',runBBBacktest);
+
+
+function emaSeries(values,len){const out=Array(values.length).fill(null);if(values.length<len)return out;const alpha=2/(len+1);let seed=0;for(let i=0;i<len;i++)seed+=values[i];out[len-1]=seed/len;for(let i=len;i<values.length;i++)out[i]=values[i]*alpha+out[i-1]*(1-alpha);return out}
+function emaBacktest(candles){
+ const close=candles.map(x=>x.c),fast=emaSeries(close,13),slow=emaSeries(close,21),fastSm=emaSeries(fast.map(x=>x??NaN),14),slowSm=emaSeries(slow.map(x=>x??NaN),14);
+ const n=candles.length,top=Array(n).fill(null),bottom=Array(n).fill(null),crossUp=Array(n).fill(false),crossDn=Array(n).fill(false);
+ for(let i=0;i<n;i++){if([fast[i],slow[i],fastSm[i],slowSm[i]].some(x=>x===null||!Number.isFinite(x)))continue;top[i]=Math.max(fast[i],slow[i],fastSm[i],slowSm[i]);bottom[i]=Math.min(fast[i],slow[i],fastSm[i],slowSm[i]);if(i&&fast[i-1]!==null&&slow[i-1]!==null){crossUp[i]=fast[i]>slow[i]&&fast[i-1]<=slow[i-1];crossDn[i]=fast[i]<slow[i]&&fast[i-1]>=slow[i-1]}}
+ let lastBuyCross=null,lastSellCross=null,dir=0,pending=0,pendCross=null,trade=null;
+ const stats={signals:0,closed:0,tp5:0,slbeTrail:0,emaExit:0,wins:0,net:0,trades:[]};
+ for(let i=1;i<n;i++){
+  // Execute pending signal at this candle's open, matching the Pine script.
+  if(pending!==0&&dir===0){
+   const d=pending,entry=candles[i].o,back=i-5;
+   if(back>=0){const sl=d===1?candles[back].l:candles[back].h,valid=d===1?sl<entry:sl>entry;
+    if(valid){dir=d;trade={dir,entry,sl,origSL:sl,tps:[10,20,30,40,50].map(x=>entry+d*x),tpHit:0,entryBar:i,beDone:false,cross:pendCross};if(d===1)lastBuyCross=pendCross;else lastSellCross=pendCross}
+   }
+   pending=0;pendCross=null;
+  }
+  // Manage trade using OHLC. Stop is checked first, as in supplied code.
+  if(dir!==0&&trade){
+   const c=candles[i];let exitPx=null,tag='';
+   const hitSL=dir===1?c.l<=trade.sl:c.h>=trade.sl;
+   if(hitSL){exitPx=trade.sl;tag=((trade.sl-trade.entry)*dir)>0?'TRAIL SL':((trade.sl-trade.entry)*dir)===0?'BE':'SL'}
+   else{
+    while(trade.tpHit<5&&(dir===1?c.h>=trade.tps[trade.tpHit]:c.l<=trade.tps[trade.tpHit])){
+      trade.tpHit++;
+      // trailSL defaults false in supplied Pine; no TP trailing.
+    }
+    if(trade.tpHit>=5){exitPx=trade.tps[4];tag='TP5'}
+    else{
+      const emaExit=dir===1?(close[i]<fast[i]&&close[i]<slow[i]):(close[i]>fast[i]&&close[i]>slow[i]);
+      if(emaExit){exitPx=close[i];tag='EMA EXIT'}
+    }
+   }
+   // Breakeven +$5 trigger, applied after exit checks as in the supplied Pine code.
+   if(exitPx===null&&!trade.beDone){const moved=dir===1?c.h-trade.entry>=5:trade.entry-c.l>=5;if(moved){trade.beDone=true;const be=trade.entry;if((be-trade.sl)*dir>0)trade.sl=be}}
+   if(exitPx!==null){const pnl=(exitPx-trade.entry)*dir;stats.closed++;stats.net+=pnl;if(pnl>0)stats.wins++;if(tag==='TP5')stats.tp5++;else if(tag==='EMA EXIT')stats.emaExit++;else stats.slbeTrail++;stats.trades.push({entryTime:candles[trade.entryBar].t,exitTime:c.t,tag,pnl});dir=0;trade=null}
+  }
+  // Signal generation at confirmed candle close; entry is next candle open.
+  if(dir===0&&pending===0&&top[i]!==null){
+   let bsUp=-1,bsDn=-1;for(let j=i;j>=0&&j>i-3;j--){if(crossUp[j]){bsUp=i-j;break}}for(let j=i;j>=0&&j>i-3;j--){if(crossDn[j]){bsDn=i-j;break}}
+   const upCrossBar=bsUp>=0?i-bsUp:null,dnCrossBar=bsDn>=0?i-bsDn:null;
+   const newBuy=lastBuyCross===null||upCrossBar!==lastBuyCross,newSell=lastSellCross===null||dnCrossBar!==lastSellCross;
+   const buy=fast[i]>slow[i]&&close[i]>top[i]&&bsUp>=0&&bsUp<=2&&newBuy;
+   const sell=fast[i]<slow[i]&&close[i]<bottom[i]&&bsDn>=0&&bsDn<=2&&newSell;
+   if(buy){pending=1;pendCross=upCrossBar;stats.signals++}else if(sell){pending=-1;pendCross=dnCrossBar;stats.signals++}
+  }
+ }
+ stats.open=trade?1:0;
+ return stats;
+}
+async function fetchAll5m(since,until){
+ let out=[],start=since;
+ for(let page=0;page<4&&start<until;page++){
+  const url=API+'/klines?symbol=BTCUSDT&interval=5m&limit=1000&startTime='+start+'&endTime='+until;
+  const rows=normalize(await fetchJSON(url)).filter(c=>c.closeTime<until);
+  if(!rows.length)break;
+  out.push(...rows);const next=rows[rows.length-1].t+5*60000;if(next<=start)break;start=next;
+  if(rows.length<1000)break;
+ }
+ const unique=new Map(out.map(c=>[c.t,c]));return [...unique.values()].sort((a,b)=>a.t-b.t)
+}
+async function runEmaBacktest(){
+ const b=document.getElementById('run-ema-backtest'),s=document.getElementById('ema-backtest-status'),note=document.getElementById('ema-backtest-note');
+ b.disabled=true;s.textContent='Loading 5M history…';note.textContent='Fetching candles with warm-up data. Keep this page open.';
+ try{
+  const now=Date.now(),since=now-7*86400000,warm=since-2*86400000,cs=await fetchAll5m(warm,now);
+  if(cs.length<1000)throw new Error('Not enough 5M candles returned ('+cs.length+'). Try again.');
+  const evalCs=cs.filter(c=>c.t>=since-5*60000),stats=emaBacktest(evalCs);
+  const rate=stats.closed?stats.wins/stats.closed*100:0;
+  document.getElementById('ema-backtest-body').innerHTML='<tr><td>Last 7 days</td><td>'+stats.signals+'</td><td>'+stats.closed+'</td><td class="good">'+stats.tp5+'</td><td>'+stats.slbeTrail+'</td><td>'+stats.emaExit+'</td><td>'+rate.toFixed(1)+'%</td><td class="'+(stats.net>0?'good':stats.net<0?'bad':'')+'">'+(stats.net>0?'+':'')+'
+document.getElementById('clear-history').addEventListener('click',()=>{if(confirm('Delete all closed-trade history saved in this browser?')){history=[];save();renderTables();renderCards()}});
+document.getElementById('export').addEventListener('click',()=>{const rows=[['timeframe','side','entry','sl','tp1','tp2','tp3','tp4','exit','resultR','reason','openedAt','closedAt'],...history.map(t=>[t.tf,t.side,t.entry,t.sl,...t.tp,t.exitPrice,t.resultR,t.closeReason,t.openedAt,t.closedAt])];const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='wajid-btc-history.csv';a.click();URL.revokeObjectURL(a.href)});
+renderCards();renderTables();refreshAll();setInterval(refreshAll,60000);
+</script></body></html>+stats.net.toFixed(2)+'</td></tr>';
+  s.textContent='Completed · '+new Date().toLocaleTimeString();
+  note.textContent='BTCUSDT Binance Spot 5M. '+cs.length+' candles loaded including warm-up; results include only trades closed inside fetched series. Entry next candle open; SL is low/high of the 5th candle back; TP distances are fixed $10/$20/$30/$40/$50; +$5 breakeven; EMA 13 & 21 close exit; trailing SL off. If SL and TP are both touched in one candle, SL is checked first. Net is price-move dollars per BTC, not account P/L; fees/slippage excluded. Browser-side translation; verify against TradingView before relying on it.';
+ }catch(e){s.textContent='Backtest failed: '+e.message;note.textContent='Check internet connection and try again.'}
+ finally{b.disabled=false}
+}
+document.getElementById('run-ema-backtest').addEventListener('click',runEmaBacktest);
 
 document.getElementById('refresh').addEventListener('click',refreshAll);
 document.getElementById('clear-history').addEventListener('click',()=>{if(confirm('Delete all closed-trade history saved in this browser?')){history=[];save();renderTables();renderCards()}});
