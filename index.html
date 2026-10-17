@@ -219,11 +219,7 @@ async function runEmaBacktest(){
   if(cs.length<1000)throw new Error('Not enough 5M candles returned ('+cs.length+'). Try again.');
   const stats=emaBacktest(cs,since);
   const rate=stats.closed?stats.wins/stats.closed*100:0;
-  document.getElementById('ema-backtest-body').innerHTML='<tr><td>Last 7 days</td><td>'+stats.signals+'</td><td>'+stats.closed+'</td><td class="good">'+stats.tp5+'</td><td>'+stats.slbeTrail+'</td><td>'+stats.emaExit+'</td><td>'+rate.toFixed(1)+'%</td><td class="'+(stats.net>0?'good':stats.net<0?'bad':'')+'">'+(stats.net>0?'+':'')+'
-document.getElementById('clear-history').addEventListener('click',()=>{if(confirm('Delete all closed-trade history saved in this browser?')){history=[];save();renderTables();renderCards()}});
-document.getElementById('export').addEventListener('click',()=>{const rows=[['timeframe','side','entry','sl','tp1','tp2','tp3','tp4','exit','resultR','reason','openedAt','closedAt'],...history.map(t=>[t.tf,t.side,t.entry,t.sl,...t.tp,t.exitPrice,t.resultR,t.closeReason,t.openedAt,t.closedAt])];const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='wajid-btc-history.csv';a.click();URL.revokeObjectURL(a.href)});
-renderCards();renderTables();refreshAll();setInterval(refreshAll,60000);
-</script></body></html>+stats.net.toFixed(2)+'</td></tr>';
+  document.getElementById('ema-backtest-body').innerHTML='<tr><td>Last 7 days</td><td>'+stats.signals+'</td><td>'+stats.closed+'</td><td class="good">'+stats.tp5+'</td><td>'+stats.slbeTrail+'</td><td>'+stats.emaExit+'</td><td>'+rate.toFixed(1)+'%</td><td class="'+(stats.net>0?'good':stats.net<0?'bad':'')+'">'+(stats.net>0?'+':'')+stats.net.toFixed(2)+'</td></tr>';
   s.textContent='Completed · '+new Date().toLocaleTimeString();
   note.textContent='BTCUSDT Binance Spot 5M. '+cs.length+' candles loaded including warm-up; results include only trades closed inside fetched series. Entry next candle open; SL is low/high of the 5th candle back; TP distances are fixed $10/$20/$30/$40/$50; +$5 breakeven; EMA 13 & 21 close exit; trailing SL off. If SL and TP are both touched in one candle, SL is checked first. Net is price-move dollars per BTC, not account P/L; fees/slippage excluded. Browser-side translation; verify against TradingView before relying on it.';
  }catch(e){s.textContent='Backtest failed: '+e.message;note.textContent='Check internet connection and try again.'}
