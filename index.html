@@ -9,7 +9,7 @@
 </style>
 </head>
 <body>
-<header><h1>WAJID <span>BTC SIGNAL</span></h1><p class="sub">Independent BTC/USDT setups · 15M · 30M · 45M</p></header>
+<header><h1>WAJID <span>BTC SIGNAL</span></h1><p class="sub">Independent BTC/USDT setups · 5M · 15M · 30M · 45M</p></header>
 <main class="wrap">
 <div class="top">
 <div class="stat"><small>BTC/USDT Price</small><strong id="price">Loading…</strong><small id="price-time">Public market feed</small></div>
@@ -55,7 +55,7 @@
 </main>
 <script>
 const API='https://api.binance.com/api/v3';
-const TFS=[{key:'15m',label:'15M',minutes:15},{key:'30m',label:'30M',minutes:30},{key:'45m',label:'45M',minutes:45}];
+const TFS=[{key:'5m',label:'5M',minutes:5},{key:'15m',label:'15M',minutes:15},{key:'30m',label:'30M',minutes:30},{key:'45m',label:'45M',minutes:45}];
 const STORE='wajid_btc_signal_v1';
 let price=0, marketCandles={}, currentSignals={}, active={}, history=[];
 try{const saved=JSON.parse(localStorage.getItem(STORE)||'{}');active=saved.active||{};history=saved.history||[]}catch{}
@@ -102,10 +102,10 @@ function showDetails(k){const sig=active[k]||currentSignals[k];if(!sig){alert('N
 function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function renderTables(){const a=Object.values(active);document.getElementById('active-body').innerHTML=a.map(t=>'<tr><td>'+t.tf+'</td><td class="'+(t.side==='BUY'?'good':'bad')+'">'+t.side+'</td><td>'+fmt(t.entry)+'</td><td>'+fmt(t.sl)+'</td><td>'+t.hit+'/5</td><td><span class="tag">OPEN</span></td><td>'+time(t.openedAt)+'</td></tr>').join('');document.getElementById('active-empty').style.display=a.length?'none':'block';document.getElementById('history-body').innerHTML=history.slice(0,200).map(t=>'<tr><td>'+t.tf+'</td><td class="'+(t.side==='BUY'?'good':'bad')+'">'+t.side+'</td><td>'+fmt(t.entry)+'</td><td>'+fmt(t.exitPrice)+'</td><td class="'+(t.resultR>0?'good':t.resultR<0?'bad':'')+'">'+(t.resultR>0?'+':'')+t.resultR.toFixed(2)+'R</td><td>'+t.hit+'/5 ('+escapeHTML(t.closeReason)+')</td><td>'+time(t.closedAt)+'</td></tr>').join('');document.getElementById('history-empty').style.display=history.length?'none':'block'}
 async function refreshAll(){setStatus('Fetching BTC/USDT candles…');try{
- const [raw15,raw30,raw1m]=await Promise.all([fetchJSON(API+'/klines?symbol=BTCUSDT&interval=15m&limit=300'),fetchJSON(API+'/klines?symbol=BTCUSDT&interval=30m&limit=200'),fetchJSON(API+'/klines?symbol=BTCUSDT&interval=1m&limit=1000')]);
- const now=Date.now(),all15=normalize(raw15),all30=normalize(raw30),closed15=all15.filter(c=>c.closeTime<now),closed30=all30.filter(c=>c.closeTime<now),closed45=aggregate45(closed15),closed1m=normalize(raw1m).filter(c=>c.closeTime<now);
- const nextOpen={'15m':all15.find(c=>c.closeTime>=now&&c.t>closed15[closed15.length-1]?.t)?.o,'30m':all30.find(c=>c.closeTime>=now&&c.t>closed30[closed30.length-1]?.t)?.o,'45m':all15.filter(c=>c.closeTime>=now).sort((a,b)=>a.t-b.t)[0]?.o};
- marketCandles={'1m':closed1m,'15m':closed15,'30m':closed30,'45m':closed45};price=Number((await fetchJSON(API+'/ticker/price?symbol=BTCUSDT')).price);document.getElementById('price').textContent='$'+fmt(price);document.getElementById('price-time').textContent='Updated '+new Date().toLocaleTimeString();
+ const [raw5,raw15,raw30,raw1m]=await Promise.all([fetchJSON(API+'/klines?symbol=BTCUSDT&interval=5m&limit=300'),fetchJSON(API+'/klines?symbol=BTCUSDT&interval=15m&limit=300'),fetchJSON(API+'/klines?symbol=BTCUSDT&interval=30m&limit=200'),fetchJSON(API+'/klines?symbol=BTCUSDT&interval=1m&limit=1000')]);
+ const now=Date.now(),all5=normalize(raw5),all15=normalize(raw15),all30=normalize(raw30),closed5=all5.filter(c=>c.closeTime<now),closed15=all15.filter(c=>c.closeTime<now),closed30=all30.filter(c=>c.closeTime<now),closed45=aggregate45(closed15),closed1m=normalize(raw1m).filter(c=>c.closeTime<now);
+ const nextOpen={'5m':all5.find(c=>c.closeTime>=now&&c.t>closed5[closed5.length-1]?.t)?.o,'15m':all15.find(c=>c.closeTime>=now&&c.t>closed15[closed15.length-1]?.t)?.o,'30m':all30.find(c=>c.closeTime>=now&&c.t>closed30[closed30.length-1]?.t)?.o,'45m':all15.filter(c=>c.closeTime>=now).sort((a,b)=>a.t-b.t)[0]?.o};
+ marketCandles={'1m':closed1m,'5m':closed5,'15m':closed15,'30m':closed30,'45m':closed45};price=Number((await fetchJSON(API+'/ticker/price?symbol=BTCUSDT')).price);document.getElementById('price').textContent='$'+fmt(price);document.getElementById('price-time').textContent='Updated '+new Date().toLocaleTimeString();
  for(const tf of TFS){const cs=marketCandles[tf.key];currentSignals[tf.key]=generateSignal(cs,tf,nextOpen[tf.key]);const latest=cs[cs.length-1];if(currentSignals[tf.key]&&currentSignals[tf.key].candleTime===latest?.t)maybeOpen(tf,currentSignals[tf.key]);updateTrade(tf,cs)}
  renderCards();renderTables();save();setStatus('Market data updated · '+new Date().toLocaleTimeString())
  }catch(e){setStatus('Could not load live market data: '+e.message,true);renderCards();renderTables()}}
