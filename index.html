@@ -49,6 +49,8 @@
 <div class="panel table-wrap"><table><thead><tr><th>Timeframe</th><th>Side</th><th>Entry</th><th>SL</th><th>TP Progress</th><th>State</th><th>Opened</th></tr></thead><tbody id="active-body"></tbody></table><div class="empty" id="active-empty">No active setups.</div></div>
 <div class="section-title"><h2>Closed trade history</h2><button class="btn" id="clear-history">Clear history</button></div>
 <div class="panel table-wrap"><table><thead><tr><th>Timeframe</th><th>Side</th><th>Entry</th><th>Exit</th><th>Result</th><th>TPs reached</th><th>Closed</th></tr></thead><tbody id="history-body"></tbody></table><div class="empty" id="history-empty">No closed trades yet.</div></div>
+<div class="section-title"><h2>Live signal history · Telegram feed</h2><span class="status" id="server-history-status">Connecting to signal server…</span></div>
+<div class="panel table-wrap"><table style="min-width:900px"><thead><tr><th>Detected (Malaysia time)</th><th>Timeframe</th><th>Side</th><th>Entry</th><th>SL</th><th>TP1</th><th>TP2</th><th>TP3</th><th>TP4</th><th>TP5</th><th>Telegram</th></tr></thead><tbody id="server-signal-history"><tr><td colspan="11" class="empty">Loading server signal history…</td></tr></tbody></table><div class="empty" id="server-history-empty" style="display:none">No BTC signals recorded yet. History starts when a new confirmed signal is detected after deployment.</div></div>
 <footer>Signals are generated from closed candles; 45M candles are aggregated from three 15M candles. Data comes from Binance public spot endpoints. This is an analysis dashboard, not an exchange execution service. Browser-local history does not sync across devices and may be lost if browser data is cleared. Always verify price, fees and risk before trading.</footer>
 </main>
 <script>
@@ -265,4 +267,29 @@ document.getElementById('refresh').addEventListener('click',refreshAll);
 document.getElementById('clear-history').addEventListener('click',()=>{if(confirm('Delete all closed-trade history saved in this browser?')){history=[];save();renderTables();renderCards()}});
 document.getElementById('export').addEventListener('click',()=>{const rows=[['timeframe','side','entry','sl','tp1','tp2','tp3','tp4','exit','resultR','reason','openedAt','closedAt'],...history.map(t=>[t.tf,t.side,t.entry,t.sl,...t.tp,t.exitPrice,t.resultR,t.closeReason,t.openedAt,t.closedAt])];const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='wajid-btc-history.csv';a.click();URL.revokeObjectURL(a.href)});
 renderCards();renderTables();refreshAll();setInterval(refreshAll,60000);
+
+const BTC_SIGNAL_HISTORY_API='https://wajid-swing-liquidity-v2.rsarian31.workers.dev/api/btc-signals';
+function safeText(v){return String(v??'').replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]))}
+function malaysiaTime(v){if(!v)return '—';try{return new Intl.DateTimeFormat('en-MY',{timeZone:'Asia/Kuala_Lumpur',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date(Number(v)))}catch{return new Date(Number(v)).toISOString()}}
+async function refreshServerSignalHistory(){
+ const status=document.getElementById('server-history-status'), body=document.getElementById('server-signal-history'), empty=document.getElementById('server-history-empty');
+ if(!status||!body||!empty)return;
+ try{
+  const response=await fetch(BTC_SIGNAL_HISTORY_API+'?t='+Date.now(),{cache:'no-store'});
+  const data=await response.json();
+  if(!response.ok||!data.ok)throw new Error(data.error||('HTTP '+response.status));
+  const signals=Array.isArray(data.signals)?data.signals:[];
+  body.innerHTML=signals.map(s=>'<tr><td>'+safeText(malaysiaTime(s.detectedAt))+'</td><td>'+safeText(s.timeframe)+'</td><td class="'+(s.side==='BUY'?'good':'bad')+'">'+safeText(s.side)+'</td><td>'+safeText(Number(s.entry).toFixed(2))+'</td><td>'+safeText(Number(s.sl).toFixed(2))+'</td>'+[0,1,2,3,4].map(i=>'<td>'+safeText(Number(s.tp?.[i]).toFixed(2))+'</td>').join('')+'<td class="'+(s.telegramDelivered?'good':s.telegramDelivered===false?'bad':'')+'">'+(s.telegramDelivered?'Sent':s.telegramDelivered===false?'Failed':'Pending')+(s.telegramError?' · '+safeText(s.telegramError):'')+'</td></tr>').join('');
+  empty.style.display=signals.length?'none':'block';
+  if(!signals.length)body.innerHTML='<tr><td colspan="11" class="empty">No new confirmed BTC signals recorded yet.</td></tr>';
+  status.textContent='Server history: '+signals.length+' signals · Updated '+malaysiaTime(data.updatedAt)+' MYT';
+ }catch(e){
+  status.textContent='Server history unavailable: '+String(e.message||e);
+  body.innerHTML='<tr><td colspan="11" class="empty">Cannot connect to the XAU signal server yet. Confirm the latest Worker deployment is successful.</td></tr>';
+  empty.style.display='none';
+ }
+}
+refreshServerSignalHistory();
+setInterval(refreshServerSignalHistory,30000);
+
 </script></body></html>
