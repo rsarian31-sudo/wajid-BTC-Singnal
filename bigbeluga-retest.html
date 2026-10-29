@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#090d13">
+<title>BigBeluga Retest Signals</title>
+<style>
+:root{color-scheme:dark;--bg:#090d13;--panel:#111821;--line:#253241;--text:#e7eef5;--muted:#93a4b5;--bull:#00ffcc;--bear:#ff007f}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,sans-serif}.wrap{max-width:1100px;margin:auto;padding:13px 10px 32px}.head,.line,.cardhead,.feedhead{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}.brand{font-weight:850;font-size:17px}.muted,.note{color:var(--muted);font-size:12px}button{background:#182330;color:var(--text);border:1px solid var(--line);border-radius:9px;padding:8px 11px;font:inherit}.on{border-color:var(--bull);color:var(--bull)}.status{display:flex;gap:7px;flex-wrap:wrap;margin:13px 0}.pill{border:1px solid var(--line);border-radius:99px;padding:4px 8px;font-size:12px;color:var(--muted)}.title{font-size:16px;font-weight:800;margin:20px 0 9px}.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.card,.signal{min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:11px;overflow:hidden}.asset{font-weight:800}.tf{color:var(--muted);font-size:11px;border:1px solid var(--line);border-radius:6px;padding:3px 6px}.trend{font-weight:850;margin:12px 0 3px}.up{color:var(--bull)}.down{color:var(--bear)}.metric{display:flex;justify-content:space-between;gap:8px;margin-top:8px;font-size:12px}.metric span{color:var(--muted)}.metric strong{text-align:right;overflow-wrap:anywhere}.split{height:8px;display:flex;overflow:hidden;border-radius:9px;background:#263342;margin:8px 0 4px}.buybar{background:var(--bull)}.sellbar{background:var(--bear)}.splabel{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}.filters{display:flex;gap:6px}.filters button.active{border-color:var(--bull);color:var(--bull)}.list{display:grid;gap:8px;margin-top:10px}.signal{display:grid;grid-template-columns:58px minmax(0,1fr);gap:9px}.sigtype{text-align:center;font-weight:900;border-radius:8px;padding:7px 4px;height:max-content}.sigtype.buy{color:var(--bull);background:#06352d}.sigtype.sell{color:var(--bear);background:#390b20}.sigmain{min-width:0}.sigmain strong{overflow-wrap:anywhere}.banner,.error{display:none;padding:11px;margin:10px 0;border:1px solid var(--bull);border-radius:10px}.banner.show{display:block;background:#06251f}.banner.sell{border-color:var(--bear);background:#2b0b1b}.error.show{display:block;border-color:#805a26;color:#ffe0a0}.empty{text-align:center;padding:22px;color:var(--muted);border:1px dashed var(--line);border-radius:11px}.note{margin-top:18px;font-size:11px}@media(max-width:760px){.cards{grid-template-columns:repeat(2,minmax(0,1fr)}}@media(max-width:420px){.cards{grid-template-columns:minmax(0,1fr)}.wrap{padding:10px 8px 25px}.brand{font-size:15px}}
+</style>
+</head>
+<body><main class="wrap">
+<header class="head"><div><div class="brand">VOLUME-TREND ORDER BLOCK ENGINE</div><div class="muted">BTC + Gold · 5m / 15m / 30m · confirmed candles only</div></div><div class="head"><button id="alerts">Alerts: Off</button><button id="test">Test alert</button></div></header>
+<div class="status"><span class="pill" id="live">Connecting…</span><span class="pill" id="poll">Last poll: —</span><span class="pill">Poll every 8s</span></div>
+<div id="banner" class="banner" role="status" aria-live="assertive"></div><div id="error" class="error" role="status"></div>
+<div class="title">Market feeds</div><section id="cards" class="cards"></section>
+<div class="title feedhead"><span>Retest signals <span class="muted">· last 48 hours</span></span><div class="filters"><button class="active" data-filter="All">All</button><button data-filter="BTC">BTC</button><button data-filter="Gold">Gold</button></div></div>
+<section id="signals" class="list" aria-live="polite"></section>
+<div class="note">Browser-side Pine translation; not yet validated candle-by-candle against TradingView. Gold uses XAUUSDT futures if available, otherwise PAXGUSDT spot. This page does not place trades. Keep the page open for polling and alerts.</div>
+</main>
+<script>
+'use strict';
+// INPUTS — maps to Pine's Supertrend, Order Block and Retest Filter settings.
+const CONFIG=Object.freeze({atrLength:50,multiplier:3.5,pivotStrength:7,minBuyPct:50,minSellPct:50,deleteOnBreak:true,showBuyRetest:true,showSellRetest:true,volumeLookback:7});
+const TFS=[{label:'5m',interval:'5m'},{label:'15m',interval:'15m'},{label:'30m',interval:'30m'}];
+// DATA — requested Binance endpoints with host and instrument fallback.
+const ASSETS=[
+ {key:'BTC',label:'BTC',sources:[i=>`https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${i}&limit=1000`,i=>`https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=${i}&limit=1000`]},
+ {key:'Gold',label:'Gold',sources:[i=>`https://fapi.binance.com/fapi/v1/klines?symbol=XAUUSDT&interval=${i}&limit=1000`,i=>`https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=${i}&limit=1000`,i=>`https://data-api.binance.vision/api/v3/klines?symbol=PAXGUSDT&interval=${i}&limit=1000`]}
+];
+const keyOf=(a,t)=>a+'|'+t, $=id=>document.getElementById(id);
+const fmt=n=>Number.isFinite(n)?n.toLocaleString(undefined,{maximumFractionDigits:n>=1000?2:n>=1?4:6}):'—';
+const pct=n=>Number.isFinite(n)?(n*100).toFixed(1)+'%':'—';
+const time=t=>Number.isFinite(t)?new Date(t).toLocaleString():'—';
+const finite=n=>Number.isFinite(n)?n:null;
+let feedData=new Map(),allSignals=new Map(),filter='All',polling=false,firstLoad=true,alertsOn=false,wakeLock=null,flashTimer=null;
+let seen=new Set();try{seen=new Set(JSON.parse(localStorage.getItem('bb_retest_seen_v1')||'[]'))}catch{}
+// ENGINE — pure Pine translation; all arrays are local to this invocation.
+function runEngine(candles,cfg=CONFIG){
+ const n=candles.length,signals=[],zones=[];if(!n)return{signals,zones,state:{}};
+ const atr=Array(n).fill(NaN),baseU=Array(n).fill(NaN),baseL=Array(n).fill(NaN),upper=Array(n).fill(0),lower=Array(n).fill(0),trend=Array(n).fill(1),stop=Array(n).fill(NaN),pLow=Array(n).fill(false),pHigh=Array(n).fill(false),tops=Array(n).fill(NaN),bots=Array(n).fill(NaN),ratios=Array(n).fill(NaN),obTrends=Array(n).fill(0);
+ // CALCULATIONS — src=hl2; custom_atr=SMA(high-low, st_len); band ratchet uses prior FINAL band and nz(...,0).
+ for(let i=0;i<n;i++){
+  if(i>=cfg.atrLength-1){let sum=0;for(let j=i-cfg.atrLength+1;j<=i;j++)sum+=candles[j].high-candles[j].low;atr[i]=sum/cfg.atrLength}
+  if(Number.isFinite(atr[i])){const src=(candles[i].high+candles[i].low)/2;baseU[i]=src+cfg.multiplier*atr[i];baseL[i]=src-cfg.multiplier*atr[i]}
+  const pl=i?upper[i-1]:0,pd=i?lower[i-1]:0;
+  lower[i]=(baseL[i]>pd||(i>0&&candles[i-1].close<pd))?baseL[i]:pd;
+  upper[i]=(baseU[i]<pl||(i>0&&candles[i-1].close>pl))?baseU[i]:pl;
+  // CALCULATIONS — market_trend and trend_stop conditional order.
+  if(i===0||!Number.isFinite(atr[i-1]))trend[i]=1;
+  else if(stop[i-1]===upper[i-1])trend[i]=candles[i].close>upper[i]?1:-1;
+  else trend[i]=candles[i].close<lower[i]?-1:1;
+  stop[i]=trend[i]===1?lower[i]:upper[i];
+  // PIVOTS — ta.pivotlow/high are confirmed pivotStrength bars later.
+  const p=cfg.pivotStrength,c=i-p;if(c>=p){let lo=true,hi=true;const lv=candles[c].low,hv=candles[c].high;for(let j=c-p;j<=c+p;j++){if(j===c)continue;if(candles[j].low<lv)lo=false;if(candles[j].high>hv)hi=false}pLow[i]=lo;pHigh[i]=hi}
+ }
+ // ORDER BLOCKS — overlap test and volume ratio from current bar back through pivot_len inclusive.
+ let top=NaN,bot=NaN,ratio=NaN,blockTrend=0,zone=null,trendStart=candles[0].openTime;
+ for(let i=0;i<n;i++){
+  const c=candles[i],p=cfg.pivotStrength,pi=i-p;if(i&&trend[i]!==trend[i-1])trendStart=c.openTime;
+  function createBlock(nt,nb,dir){const overlap=Number.isFinite(top)&&Number.isFinite(bot)&&!(nb>top||nt<bot);if(overlap)return;top=nt;bot=nb;blockTrend=dir;let bv=0,sv=0;for(let k=0;k<=cfg.volumeLookback;k++){const b=candles[i-k];if(!b)continue;if(b.close>=b.open)bv+=b.volume;else sv+=b.volume}ratio=bv+sv>0?bv/(bv+sv):0.5;zone={top,bot,buyRatio:ratio,trend:dir,startTime:candles[pi]?.openTime??c.openTime}}
+  // ORDER BLOCKS — bullish block from confirmed pivot low.
+  if(trend[i]===1&&pLow[i]&&pi>=0){const nt=Math.min(candles[pi].open,candles[pi].close),nb=nt-atr[i];if(Number.isFinite(nb))createBlock(nt,nb,1)}
+  // ORDER BLOCKS — bearish block from confirmed pivot high.
+  if(trend[i]===-1&&pHigh[i]&&pi>=0){const nb=Math.max(candles[pi].open,candles[pi].close),nt=nb+atr[i];if(Number.isFinite(nt))createBlock(nt,nb,-1)}
+  // INVALIDATION — delete block when fully broken; keep the buy ratio as Pine does.
+  if(cfg.deleteOnBreak&&Number.isFinite(top)&&Number.isFinite(bot)&&((blockTrend===1&&c.high<bot)||(blockTrend===-1&&c.low>top))){top=NaN;bot=NaN;blockTrend=0;zone=null}
+  tops[i]=top;bots[i]=bot;ratios[i]=ratio;obTrends[i]=blockTrend;
+  // SIGNALS — crossover compares current low/high with current and previous FINAL active zone values.
+  if(i>0){const changed=trend[i]!==trend[i-1],buy=c.low>top&&candles[i-1].low<=tops[i-1]&&!pLow[i]&&Number.isFinite(top)&&ratio>=cfg.minBuyPct/100&&!changed,sell=c.high<bot&&candles[i-1].high>=bots[i-1]&&!pHigh[i]&&Number.isFinite(bot)&&(1-ratio)>=cfg.minSellPct/100&&!changed;
+   if(cfg.showBuyRetest&&buy)signals.push({type:'BUY',candleOpenTime:c.openTime,candleCloseTime:c.closeTime,price:c.close,blockTop:top,blockBot:bot,buyRatio:ratio,sellRatio:1-ratio});
+   if(cfg.showSellRetest&&sell)signals.push({type:'SELL',candleOpenTime:c.openTime,candleCloseTime:c.closeTime,price:c.close,blockTop:top,blockBot:bot,buyRatio:ratio,sellRatio:1-ratio});
+  }
+  if(zone&&Number.isFinite(top)&&Number.isFinite(bot))zones.push({...zone,endTime:c.closeTime});
+ }
+ // STATE — return null for unavailable numeric values instead of NaN.
+ const i=n-1;return{signals,zones,state:{trend:trend[i],trendStop:finite(stop[i]),upperBand:finite(upper[i]),lowerBand:finite(lower[i]),activeTop:finite(tops[i]),activeBot:finite(bots[i]),activeBuyRatio:finite(ratios[i]),activeSellRatio:Number.isFinite(ratios[i])?finite(1-ratios[i]):null,activeObTrend:obTrends[i],trendStartTime:trendStart,barOpenTime:candles[i].openTime,barCloseTime:candles[i].closeTime,lastSignalTime:signals.length?signals[signals.length-1].candleCloseTime:null}}
+}
+// DATA — per-request timeout; only closed klines survive parsing.
+async function fetchTimeout(url,ms=6500){const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),ms);try{const r=await fetch(url,{signal:ctl.signal,cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);return await r.json()}finally{clearTimeout(timer)}}
+function parseRows(rows){const now=Date.now();if(!Array.isArray(rows))throw Error('Invalid kline response');return rows.map(r=>({openTime:+r[0],open:+r[1],high:+r[2],low:+r[3],close:+r[4],volume:+r[5],closeTime:+r[6]})).filter(c=>c.closeTime<now&&[c.openTime,c.open,c.high,c.low,c.close,c.volume,c.closeTime].every(Number.isFinite))}
+async function fetchFeed(asset,tf){let err;for(const mk of asset.sources){try{const url=mk(tf.interval),candles=parseRows(await fetchTimeout(url));if(candles.length<2)throw Error('Too few closed candles');return{candles,source:new URL(url).host}}catch(e){err=e}}throw err||Error('All sources failed')}
+// ALERTS — deduplicate on asset|timeframe|candleOpenTime|type.
+function sigId(s){return s.asset+'|'+s.timeframe+'|'+s.candleOpenTime+'|'+s.type}
+function saveSeen(){try{localStorage.setItem('bb_retest_seen_v1',JSON.stringify([...seen].slice(-6000)))}catch{}}
+function beep(type){try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;const ctx=new C(),o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';o.frequency.value=type==='BUY'?880:330;g.gain.setValueAtTime(.0001,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.16,ctx.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+.28);o.connect(g);g.connect(ctx.destination);o.start();o.stop(ctx.currentTime+.3);o.onended=()=>ctx.close()}catch{}}
+function flashTitle(){if(flashTimer)return;const old=document.title;let on=false;flashTimer=setInterval(()=>{document.title=on?'⚡ NEW RETEST':'🔔 Signal alert';on=!on},700);setTimeout(()=>{clearInterval(flashTimer);flashTimer=null;document.title=old},8000)}
+async function announce(s){const b=$('banner');b.className='banner show'+(s.type==='SELL'?' sell':'');b.textContent=s.type+' · '+s.asset+' '+s.timeframe+' · '+fmt(s.price)+' · '+time(s.candleCloseTime);setTimeout(()=>b.classList.remove('show'),9000);if(alertsOn){beep(s.type);if(navigator.vibrate)navigator.vibrate(s.type==='BUY'?[120,60,120]:[300,100,300]);if('Notification'in window&&Notification.permission==='granted'){try{new Notification(s.type+' · '+s.asset+' '+s.timeframe,{body:'Price '+fmt(s.price)+' · OB '+fmt(s.blockBot)+' – '+fmt(s.blockTop)})}catch{}}flashTitle()}}
+function recordSignal(s,alertNew){const id=sigId(s);if(allSignals.has(id))return;if(alertNew&&!seen.has(id)){seen.add(id);saveSeen();announce(s)}allSignals.set(id,s)}
+async function toggleAlerts(){alertsOn=!alertsOn;$('alerts').textContent='Alerts: '+(alertsOn?'On':'Off');$('alerts').classList.toggle('on',alertsOn);if(alertsOn){try{const C=window.AudioContext||window.webkitAudioContext;if(C){const c=new C();await c.resume();await c.close()}}catch{}if('Notification'in window&&Notification.permission==='default'){try{await Notification.requestPermission()}catch{}}if('wakeLock'in navigator){try{wakeLock=await navigator.wakeLock.request('screen');wakeLock.addEventListener('release',()=>wakeLock=null)}catch{}}}else if(wakeLock){try{await wakeLock.release()}catch{}wakeLock=null}}
+function renderCards(){const root=$('cards');root.innerHTML='';for(const a of ASSETS)for(const tf of TFS){const d=feedData.get(keyOf(a.key,tf.label)),s=d?.result?.state,c=d?.candles?.at(-1),buy=s?.activeBuyRatio,sell=s?.activeSellRatio,dist=s&&c&&s.trendStop!==null?(c.close-s.trendStop)/c.close*100:NaN,last=[...allSignals.values()].filter(x=>x.asset===a.key&&x.timeframe===tf.label).sort((x,y)=>y.candleCloseTime-x.candleCloseTime)[0];const card=document.createElement('article');card.className='card';card.innerHTML='<div class="cardhead"><span class="asset">'+a.label+'</span><span class="tf">'+tf.label+'</span></div><div class="trend '+(s?.trend===1?'up':'down')+'">'+(s?(s.trend===1?'▲ UP':'▼ DOWN'):'WAITING FOR DATA')+'</div><div class="muted">Trend since: '+(s?time(s.trendStartTime):'—')+'</div><div class="metric"><span>Last price</span><strong>'+(c?fmt(c.close):'—')+'</strong></div><div class="metric"><span>Trail level</span><strong>'+(s?fmt(s.trendStop):'—')+'</strong></div><div class="metric"><span>Distance to trail</span><strong>'+(Number.isFinite(dist)?dist.toFixed(2)+'%':'—')+'</strong></div><div class="metric"><span>Active OB range</span><strong>'+(s&&s.activeTop!==null&&s.activeBot!==null?fmt(s.activeBot)+' – '+fmt(s.activeTop):'None')+'</strong></div><div class="split"><div class="buybar" style="width:'+(Number.isFinite(buy)?Math.max(0,Math.min(100,buy*100)):0)+'%"></div><div class="sellbar" style="width:'+(Number.isFinite(sell)?Math.max(0,Math.min(100,sell*100)):0)+'%"></div></div><div class="splabel"><span>BUY '+pct(buy)+'</span><span>SELL '+pct(sell)+'</span></div><div class="metric"><span>Last signal</span><strong>'+(last?last.type+' · '+time(last.candleCloseTime):'None yet')+'</strong></div><div class="note">'+(d?.source?'Source: '+d.source:d?.error?'Feed error · keeping last good data':'Loading…')+'</div>';root.appendChild(card)}}
+function renderSignals(){const root=$('signals'),cut=Date.now()-48*3600000,rows=[...allSignals.values()].filter(s=>s.candleCloseTime>=cut&&(filter==='All'||s.asset===filter)).sort((a,b)=>b.candleCloseTime-a.candleCloseTime);root.innerHTML='';if(!rows.length){root.innerHTML='<div class="empty">No retest signals in the last 48 hours.</div>';return}for(const s of rows){const el=document.createElement('article');el.className='signal';el.innerHTML='<div class="sigtype '+s.type.toLowerCase()+'">'+s.type+'</div><div class="sigmain"><div><strong>'+s.asset+' · '+s.timeframe+'</strong> · '+fmt(s.price)+'</div><div class="muted">Order block: '+fmt(s.blockBot)+' – '+fmt(s.blockTop)+'</div><div class="muted">BUY '+pct(s.buyRatio)+' / SELL '+pct(s.sellRatio)+'</div><div class="muted">Candle close: '+time(s.candleCloseTime)+'</div></div>';root.appendChild(el)}}
+// POLLING — evaluate each feed independently; retain prior successful data on errors.
+async function pollAll(){if(polling)return;polling=true;let ok=0;const errors=[];try{const jobs=[];for(const a of ASSETS)for(const tf of TFS)jobs.push((async()=>{const k=keyOf(a.key,tf.label);try{const f=await fetchFeed(a,tf),result=runEngine(f.candles,CONFIG);feedData.set(k,{...f,result,error:null});ok++;for(const raw of result.signals){const s={...raw,asset:a.key,timeframe:tf.label};if(firstLoad){seen.add(sigId(s));allSignals.set(sigId(s),s)}else recordSignal(s,true)}}catch(e){errors.push(a.label+' '+tf.label+': '+(e.message||'feed failed'));const old=feedData.get(k);feedData.set(k,old?{...old,error:e.message||'feed failed'}:{candles:[],source:null,error:e.message||'feed failed',result:null})}})());await Promise.all(jobs);firstLoad=false;saveSeen();renderCards();renderSignals();$('poll').textContent='Last poll: '+new Date().toLocaleTimeString();$('live').textContent=errors.length?ok+'/6 feeds OK':'All 6 feeds live';$('error').classList.toggle('show',errors.length>0);$('error').textContent=errors.length?'Some feeds failed; last good data retained where available. '+errors.join(' · '):''}finally{polling=false}}
+$('alerts').addEventListener('click',toggleAlerts);$('test').addEventListener('click',()=>{const s={type:'BUY',asset:'TEST',timeframe:'5m',price:12345,blockBot:12200,blockTop:12300,candleOpenTime:Date.now(),candleCloseTime:Date.now(),buyRatio:.7,sellRatio:.3};announce(s);if(!alertsOn)beep('BUY')});document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click',()=>{filter=b.dataset.filter;document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('active',x===b));renderSignals()}));document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='visible'&&alertsOn&&'wakeLock'in navigator&&!wakeLock){try{wakeLock=await navigator.wakeLock.request('screen')}catch{}}});window.__BB_RETEST_TEST__={runEngine,CONFIG};renderCards();renderSignals();pollAll();setInterval(pollAll,8000);
+</script></body></html>
